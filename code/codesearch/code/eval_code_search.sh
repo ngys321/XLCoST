@@ -1,10 +1,11 @@
-root_path=../
+root_path=/home/ysnamgoong42/ws/XLCoST/
 code2codesearch_path=${root_path}code2codesearch/
 nl2codesearch_path=${root_path}nl2codesearch/
 
-declare -a langs=("C++" "Java" "Python" "C#" "Javascript" "PHP" "C")
-declare -a models=("codebert" "roberta")
-declare -a datatypes=("snippet" "program")
+declare -a langs=("Python") # declare -a langs=("C++" "Java" "Python" "C#" "Javascript" "PHP" "C")
+declare -a models=("unixcoder") # declare -a models=("codebert")
+                                # declare -a models=("codebert" "roberta")
+declare -a datatypes=("program") # declare -a datatypes=("snippet" "program")
 
 function run() {
 for datatype in "${datatypes[@]}"; do
@@ -21,12 +22,12 @@ for datatype in "${datatypes[@]}"; do
 done
 }
 
-exp=code2code
-exp_path=${code2codesearch_path}
-data_path=${exp_path}dataset/
-evaluator_path=${exp_path}evaluator/
+# exp=code2code
+# exp_path=${code2codesearch_path}
+# data_path=${exp_path}dataset/
+# evaluator_path=${exp_path}evaluator/
 
-run;
+# run;
 
 exp=nl2code
 exp_path=${nl2codesearch_path}

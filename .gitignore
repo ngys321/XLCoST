@@ -126,3 +126,30 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+
+
+# 
+code/codesearch/code/__pycache__/
+code/codesearch/code/*.pickle
+code/codesearch/code/slurm-*
+code/translation/evaluator/__pycache__/
+code/translation/code/__pycache__/
+code/translation/code/slurm-*
+code/translation/code/codet5*
+code/translation/code/plbart*
+code/translation/code/unixcoder*
+
+g4g/
+
+metadata/
+
+nl2codesearch/codebert*
+nl2codesearch/codet5p*
+nl2codesearch/dataset
+nl2codesearch/plbart*
+nl2codesearch/unixcoder*
+
+XLCoST_data/
+
+XLCoST_data.zip

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-root_path=../
+root_path=/home/ysnamgoong42/ws/XLCoST/
 code2codesearch_path=${root_path}code2codesearch/
 nl2codesearch_path=${root_path}nl2codesearch/
 
@@ -16,8 +16,8 @@ LANG_UPPER['php']='PHP'
 # bash run_code_search.sh 2 java code2code program codebert train
 # bash run_code_search.sh 2 java nl2code program codebert eval
 GPU=${1:-0};
-SOURCE=${2:-java};
-EXP=${3:-code2code};
+SOURCE=${2:-java}; #python
+EXP=${3:-code2code}; #nl2code
 DATA_TYPE=${4:-program};
 MODEL=${5:-codebert};
 IS_TRAIN=${6:-train};
@@ -29,9 +29,15 @@ if [[ $MODEL == 'codebert' ]]; then
     pretrained_model="microsoft/codebert-base";
 elif [[ $MODEL == 'roberta' ]]; then
     pretrained_model="roberta-base";
+elif [[ $MODEL == 'codet5p' ]]; then
+    pretrained_model="Salesforce/codet5p-220m";
+elif [[ $MODEL == 'unixcoder' ]]; then
+    pretrained_model="microsoft/unixcoder-base";
+elif [[ $MODEL == 'plbart' ]]; then
+    pretrained_model="uclanlp/plbart-base";
 fi
 
-NUM_TRAIN_EPOCHS=2;
+NUM_TRAIN_EPOCHS=10;
 lr=5e-5;
 TRAIN_BATCH_SIZE=8;
 EVAL_BATCH_SIZE=8;
@@ -65,7 +71,7 @@ python3 run.py \
     --tokenizer_name=$pretrained_model \
     --do_train \
     --train_data_file=$data_path$lang1/train.jsonl \
-    --eval_data_file=$data_path$lang1/val.jsonl \
+    --eval_data_file=$data_path$lang1/valid.jsonl \
     --test_data_file=$data_path$lang1/test.jsonl \
     --epoch $NUM_TRAIN_EPOCHS \
     --block_size 512 \
@@ -88,7 +94,7 @@ python run.py \
     --do_eval \
     --do_test \
     --train_data_file=$data_path$lang1/train.jsonl \
-    --eval_data_file=$data_path$lang1/val.jsonl \
+    --eval_data_file=$data_path$lang1/valid.jsonl \
     --test_data_file=$data_path$lang1/test.jsonl \
     --epoch $NUM_TRAIN_EPOCHS \
     --block_size 512 \

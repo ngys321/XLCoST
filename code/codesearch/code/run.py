@@ -49,7 +49,13 @@ from transformers import (WEIGHTS_NAME, AdamW, get_linear_schedule_with_warmup,
                           GPT2Config, GPT2LMHeadModel, GPT2Tokenizer,
                           OpenAIGPTConfig, OpenAIGPTLMHeadModel, OpenAIGPTTokenizer,
                           RobertaConfig, RobertaModel, RobertaTokenizer,
-                          DistilBertConfig, DistilBertForMaskedLM, DistilBertTokenizer)
+                          DistilBertConfig, DistilBertForMaskedLM, DistilBertTokenizer,
+                          T5Config, T5EncoderModel, T5Tokenizer, AutoTokenizer,
+                          PLBartConfig, PLBartForConditionalGeneration, PLBartTokenizer)
+
+import os
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +64,7 @@ MODEL_CLASSES = {
     'openai-gpt': (OpenAIGPTConfig, OpenAIGPTLMHeadModel, OpenAIGPTTokenizer),
     'bert': (BertConfig, BertForMaskedLM, BertTokenizer),
     'roberta': (RobertaConfig, RobertaModel, RobertaTokenizer),
-    'distilbert': (DistilBertConfig, DistilBertForMaskedLM, DistilBertTokenizer)
+    'distilbert': (DistilBertConfig, DistilBertForMaskedLM, DistilBertTokenizer),
 }
 
 
@@ -87,15 +93,15 @@ def convert_examples_to_features(js,tokenizer,args):
         code=' '.join(js['code_tokens'])
     else:
         code=' '.join(js['function_tokens'])
-    code_tokens=tokenizer.tokenize(code)[:args.block_size-2]
-    code_tokens =[tokenizer.cls_token]+code_tokens+[tokenizer.sep_token]
+    code_tokens=tokenizer.tokenize(code)[:args.block_size-4]
+    code_tokens =[tokenizer.cls_token,"<encoder-only>",tokenizer.sep_token]+code_tokens+[tokenizer.sep_token]
     code_ids =  tokenizer.convert_tokens_to_ids(code_tokens)
     padding_length = args.block_size - len(code_ids)
     code_ids+=[tokenizer.pad_token_id]*padding_length
     
     nl=' '.join(js['docstring_tokens'])
-    nl_tokens=tokenizer.tokenize(nl)[:args.block_size-2]
-    nl_tokens =[tokenizer.cls_token]+nl_tokens+[tokenizer.sep_token]
+    nl_tokens=tokenizer.tokenize(nl)[:args.block_size-4]
+    nl_tokens =[tokenizer.cls_token,"<encoder-only>",tokenizer.sep_token]+nl_tokens+[tokenizer.sep_token]
     nl_ids =  tokenizer.convert_tokens_to_ids(nl_tokens)
     padding_length = args.block_size - len(nl_ids)
     nl_ids+=[tokenizer.pad_token_id]*padding_length    
@@ -546,6 +552,13 @@ def main():
         logger.info("reload model from {}, resume from {} epoch".format(checkpoint_last, args.start_epoch))
 
     config_class, model_class, tokenizer_class = MODEL_CLASSES[args.model_type]
+    if args.model_name_or_path == "Salesforce/codet5p-220m":
+        config_class, model_class, tokenizer_class = T5Config, T5EncoderModel, AutoTokenizer
+        T5EncoderModel._keys_to_ignore_on_load_unexpected = ["decoder.*","lm_head.weight"]
+    if args.model_name_or_path == "uclanlp/plbart-base":
+        config_class, model_class, tokenizer_class = PLBartConfig, PLBartForConditionalGeneration, PLBartTokenizer
+        PLBartForConditionalGeneration._keys_to_ignore_on_load_unexpected = ["decoder.*","lm_head.weight"]
+        
     config = config_class.from_pretrained(args.config_name if args.config_name else args.model_name_or_path,
                                           cache_dir=args.cache_dir if args.cache_dir else None)
     config.num_labels=1

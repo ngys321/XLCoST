@@ -52,7 +52,7 @@ ngram_match_score = bleu.corpus_bleu(tokenized_refs,tokenized_hyps)
 # from os.path import isfile, join
 # onlyfiles = [f for f in listdir("./keywords") if isfile(join("keywords", f))]
 # print(onlyfiles)
-keywords = [x.strip() for x in open('/home/mingzhu/CodeModel/CodeXGLUE/Code-Code/code-to-code-trans/evaluator/CodeBLEU/keywords/'+args.lang+'.txt', 'r', encoding='utf-8').readlines()]
+keywords = [x.strip() for x in open('/home/ysnamgoong42/ws/XLCoST/code/translation/evaluator/CodeBLEU/keywords/'+args.lang+'.txt', 'r', encoding='utf-8').readlines()]
 def make_weights(reference_tokens, key_word_list):
     return {token:1 if token in key_word_list else 0.2 \
             for token in reference_tokens}
