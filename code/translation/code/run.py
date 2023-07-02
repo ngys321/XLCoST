@@ -58,6 +58,12 @@ from transformers import (BartConfig, BartForConditionalGeneration, BartTokenize
                           T5Config, T5ForConditionalGeneration, T5Tokenizer,
                           PLBartConfig, PLBartForConditionalGeneration, PLBartTokenizer,
                          PLBartModel, AutoTokenizer)
+from codeToken2codeStr import codeToken2codeStr
+from codeStr2codeToken import codeStr2codeToken
+from sentence_transformers import SentenceTransformer
+from sklearn.metrics.pairwise import cosine_similarity
+sbert_model = SentenceTransformer('bert-base-nli-mean-tokens')
+
 MODEL_CLASSES = {'roberta': (RobertaConfig, RobertaModel, RobertaTokenizer),
                  't5': (T5Config, T5ForConditionalGeneration, T5Tokenizer),
                  'codet5': (T5Config, T5ForConditionalGeneration, RobertaTokenizer),
@@ -179,7 +185,8 @@ def convert_examples_to_features(examples, tokenizer, args,stage=None): # tokeni
  
         #target
         if stage=="test":
-            target_tokens = tokenizer.tokenize("None")
+            # target_tokens = tokenizer.tokenize("None")
+            target_tokens = tokenizer.tokenize(example.target)[:args.max_target_length-2]
         else:
             target_tokens = tokenizer.tokenize(example.target)[:args.max_target_length-2]
             # example.target : (예시) 'def maxPresum ( a , b ) : NEW_LINE INDENT X = max ( a [ 0 ] , 0 ) NEW_LINE for i in range ( 1 , len ( a ) ) : NEW_LINE INDENT a [ i ] += a [ i - 1 ] NEW_LINE X = max ( X , a [ i ] ) NEW_LINE DEDENT Y = max ( b [ 0 ] , 0 ) NEW_LINE for i in range ( 1 , len ( b ) ) : NEW_LINE INDENT b [ i ] += b [ i - 1 ] NEW_LINE Y = max ( Y , b [ i ] ) NEW_LINE DEDENT return X + Y NEW_LINE DEDENT A = [ 2 , - 1 , 4 , - 5 ] NEW_LINE B = [ 4 , - 3 , 12 , 4 , - 3 ] NEW_LINE print ( maxPresum ( A , B ) ) NEW_LINE'
@@ -753,7 +760,10 @@ def main():
             eval_features = convert_examples_to_features(eval_examples, tokenizer, args,stage='test')
             all_source_ids = torch.tensor([f.source_ids for f in eval_features], dtype=torch.long)      #all_source_ids.shape : torch.Size([887, 400])
             all_source_mask = torch.tensor([f.source_mask for f in eval_features], dtype=torch.long)    #all_source_mask.shape : torch.Size([887, 400])
-            eval_data = TensorDataset(all_source_ids,all_source_mask)
+            all_target_ids = torch.tensor([f.target_ids for f in eval_features], dtype=torch.long) 
+            all_target_mask = torch.tensor([f.target_mask for f in eval_features], dtype=torch.long)
+
+            eval_data = TensorDataset(all_source_ids,all_source_mask,all_target_ids,all_target_mask)
             
 
 
@@ -765,9 +775,23 @@ def main():
             model.eval() 
             p=[]
             pred_ids = []
+            acc_4_paradigm = 0.0
+            num_correct_paradigm = 0
+            num_count = 0
+            sum_sbert_score = 0.0
+            sum_sbert_score_wo_paradigm = 0.0
+            num_count_4_sbert_score = 0
+            TP_sum_code_len = 0.0
+            FP_sum_code_len = 0.0
+            FN_sum_code_len = 0.0
+            TN_sum_code_len = 0.0
+            TP_count = 0
+            FP_count = 0
+            FN_count = 0
+            TN_count = 0
             for batch in tqdm(eval_dataloader,total=len(eval_dataloader)):
                 batch = tuple(t.to(device) for t in batch)
-                source_ids,source_mask= batch                                           # batch 체크
+                source_ids,source_mask,target_ids,target_mask= batch                                         # batch 체크
                 # batch : 크기 2 인 tuple
                 # batch[0] : batch size(=16) 개수만큼 source_ids 를 가져옴,  batch[0].shape : torch.Size([16, 400])
                 #           tensor([[   1, 9459,  358,  ...,    0,    0,    0],
@@ -831,6 +855,9 @@ def main():
                     flag = 0
                     for pred in preds:
                         t=pred[0].cpu().numpy()
+                        # print("type(pred[0].cpu().numpy()): ", type(pred[0].cpu().numpy()))
+                        # print("type(pred[1].cpu().numpy().size()): ", type(pred[1].cpu().numpy())) 
+                        # print("preds[0][0].cpu().numpy() == t: ", preds[0][0].cpu().numpy() == t)
                         t=list(t)
                         if 0 in t:
                             t=t[:t.index(0)]
@@ -838,7 +865,97 @@ def main():
                         p.append(text)
 
                         if flag == 0:
-                            print("tokenizer.decode(t,:",tokenizer.decode(t, skip_special_tokens=True, clean_up_tokenization_spaces=False)) #top_preds -> p
+                            # print("SOURCE CODE: tokenizer.decode(source_ids[0],:",tokenizer.decode(source_ids[0], skip_special_tokens=True, clean_up_tokenization_spaces=False))
+                            source_token_list = tokenizer.decode(source_ids[0], skip_special_tokens=True, clean_up_tokenization_spaces=False).split()
+                            print("SOURCE TOKEN LIST:")
+                            print(source_token_list)
+                            
+                            source_str = codeToken2codeStr(tokenizer.decode(source_ids[0], skip_special_tokens=True, clean_up_tokenization_spaces=False).split() ) 
+                            print("SOURCE:")
+                            print(source_str)
+                            # print(codeToken2codeStr(codeStr2codeToken(tokenizer.decode(source_ids[0], skip_special_tokens=True, clean_up_tokenization_spaces=False))))
+                            print()
+
+                            gt_target_token_list = tokenizer.decode(target_ids[0], skip_special_tokens=True, clean_up_tokenization_spaces=False).split()
+                            print("GROUND-TRUTH TARGET TOKEN LIST:")
+                            print(gt_target_token_list)
+
+                            gt_target_str = codeToken2codeStr(tokenizer.decode(target_ids[0], skip_special_tokens=True, clean_up_tokenization_spaces=False).split() )
+                            print("GROUND-TRUTH TARGET:")
+                            print(gt_target_str)
+                            print()
+
+                            pred_target_token_list = tokenizer.decode(t, skip_special_tokens=True, clean_up_tokenization_spaces=False).split()
+                            print("MODEL PREDICTED TARGET TOKEN LIST:")
+                            print(pred_target_token_list)
+
+                            pred_target_str = codeToken2codeStr(tokenizer.decode(t, skip_special_tokens=True, clean_up_tokenization_spaces=False).split() )
+                            print("MODEL PREDICTED TARGET:")
+                            print(pred_target_str)
+                            print()
+
+                            with open(os.path.join(args.output_dir,"tmp.output"),'w') as f, open(os.path.join(args.output_dir,"tmp.gold"),'w') as f1:
+                                f.write(pred_target_str+'\n')
+                                f1.write(gt_target_str+'\n')
+                            dev_bleu=round(_bleu(os.path.join(args.output_dir,"tmp.gold"), os.path.join(args.output_dir,"tmp.output")),2) # bleu 계산
+                            # logger.info("  %s = %s "%("bleu-4",str(dev_bleu)))
+                            print("bleu-4: ",str(dev_bleu))
+                            with open(os.path.join(args.output_dir,"tmp_wo_paradigm.output"),'w') as f, open(os.path.join(args.output_dir,"tmp_wo_paradigm.gold"),'w') as f1:
+                                f.write(' '.join(pred_target_str.split()[:-4])+'\n')
+                                f1.write(' '.join(gt_target_str.split()[:-4])+'\n')
+                            dev_bleu=round(_bleu(os.path.join(args.output_dir, "tmp_wo_paradigm.gold"), os.path.join(args.output_dir, "tmp_wo_paradigm.output")),2) # bleu 계산
+                            print("bleu-4 w/o programming paradigm: ",str(dev_bleu))
+
+                            # s-bert score 계산
+                            pred_target_str_wo_paradigm, gt_target_str_wo_paradigm = ' '.join(pred_target_str.split()[:-4]), ' '.join(gt_target_str.split()[:-4])
+                            sentences = [pred_target_str, gt_target_str, pred_target_str_wo_paradigm, gt_target_str_wo_paradigm]
+                            sentence_embeddings = sbert_model.encode(sentences)
+                            print()
+                            pred_target_str_embedding, gt_target_str_embedding, pred_target_str_wo_paradigm_embedding, gt_target_str_wo_paradigm_embedding = \
+                                sentence_embeddings[0], sentence_embeddings[1], sentence_embeddings[2], sentence_embeddings[3]
+                            s_bert_score = cosine_similarity([pred_target_str_embedding], [gt_target_str_embedding])
+                            s_bert_score_wo_paradigm = cosine_similarity([pred_target_str_wo_paradigm_embedding], [gt_target_str_wo_paradigm_embedding])
+                            print("S-BERT Score: ", round(float(s_bert_score),3))
+                            print("S-BERT Score w/o programming paradigm: ", round(float(s_bert_score_wo_paradigm),3))
+                            num_count_4_sbert_score += 1
+                            sum_sbert_score += s_bert_score
+                            sum_sbert_score_wo_paradigm += s_bert_score_wo_paradigm
+                            print()
+
+                            num_count += 1
+                            gt_programming_paradigm = ' '.join(tokenizer.decode(target_ids[0], skip_special_tokens=True, clean_up_tokenization_spaces=False).split()[-4:])
+                            pred_programming_paradigm = ' '.join(tokenizer.decode(t, skip_special_tokens=True, clean_up_tokenization_spaces=False).split()[-4:])
+                            if gt_programming_paradigm == pred_programming_paradigm:
+                                num_correct_paradigm += 1
+                            # imperative 를 1, functional 을 0 이라 간주
+                            # 
+                            if pred_programming_paradigm == 'in imperative programming paradigm' and gt_programming_paradigm == 'in imperative programming paradigm': # TP 인 경우
+                                TP_count += 1
+                                TP_sum_code_len += len(source_token_list)
+                                CASE = "TP"
+                            elif pred_programming_paradigm == 'in imperative programming paradigm' and gt_programming_paradigm == 'in functional programming paradigm': # FP 인 경우
+                                FP_count += 1
+                                FP_sum_code_len += len(source_token_list)
+                                CASE = "FP"
+                            elif pred_programming_paradigm == 'in functional programming paradigm' and gt_programming_paradigm == 'in imperative programming paradigm': # FN 인 경우
+                                FN_count += 1
+                                FN_sum_code_len += len(source_token_list)
+                                CASE = "FN"
+                            elif pred_programming_paradigm == 'in functional programming paradigm' and gt_programming_paradigm == 'in functional programming paradigm': # TN 인 경우
+                                TN_count += 1
+                                TN_sum_code_len += len(source_token_list)
+                                CASE = "TN"
+                            print("CASE: ", CASE)
+                            
+                            print()
+                            print()
+                            print()
+                            print()
+                            print()
+                            print()
+                            print()
+
+
                             flag = 1
 
 
@@ -849,7 +966,103 @@ def main():
                                           for id in pred_ids]
                     # 지금까지 여러 배치의 pred ids 들을 누적시킨 pred_ids 에서, seq prediction(=id) 을 하나씩 꺼내서, tokenizer.decode() 에 넣어서, output을 얻는다. p는 그 output들로 만든 리스트.
                     
-                    print("tokenizer.decode(top_preds[0],:",tokenizer.decode(top_preds[0], skip_special_tokens=True, clean_up_tokenization_spaces=False))
+                    # [doc] 출력하기
+                    # 
+                    # convert_tokens_to_ids
+                    # convert_ids_to_tokens
+                    # decode
+                    # https://huggingface.co/transformers/v2.11.0/main_classes/tokenizer.html
+                    # 
+                    
+                    # print("SOURCE CODE: tokenizer.decode(source_ids[0],:",tokenizer.decode(source_ids[0], skip_special_tokens=True, clean_up_tokenization_spaces=False))
+                    source_token_list = tokenizer.decode(source_ids[0], skip_special_tokens=True, clean_up_tokenization_spaces=False).split()
+                    print("SOURCE TOKEN LIST:")
+                    print(source_token_list)
+                    
+                    source_str = codeToken2codeStr(tokenizer.decode(source_ids[0], skip_special_tokens=True, clean_up_tokenization_spaces=False).split() ) 
+                    print("SOURCE:")
+                    print(source_str)
+                    # print(codeToken2codeStr(codeStr2codeToken(tokenizer.decode(source_ids[0], skip_special_tokens=True, clean_up_tokenization_spaces=False))))
+                    print()
+
+                    gt_target_token_list = tokenizer.decode(target_ids[0], skip_special_tokens=True, clean_up_tokenization_spaces=False).split()
+                    print("GROUND-TRUTH TARGET TOKEN LIST:")
+                    print(gt_target_token_list)
+
+                    gt_target_str = codeToken2codeStr(tokenizer.decode(target_ids[0], skip_special_tokens=True, clean_up_tokenization_spaces=False).split() )
+                    print("GROUND-TRUTH TARGET:")
+                    print(gt_target_str)
+                    print()
+
+                    pred_target_token_list = tokenizer.decode(top_preds[0], skip_special_tokens=True, clean_up_tokenization_spaces=False).split()
+                    print("MODEL PREDICTED TARGET TOKEN LIST:")
+                    print(pred_target_token_list)
+
+                    pred_target_str = codeToken2codeStr(tokenizer.decode(top_preds[0], skip_special_tokens=True, clean_up_tokenization_spaces=False).split() )
+                    print("MODEL PREDICTED TARGET:")
+                    print(pred_target_str)
+                    print()
+
+                    with open(os.path.join(args.output_dir,"tmp.output"),'w') as f, open(os.path.join(args.output_dir,"tmp.gold"),'w') as f1:
+                        f.write(pred_target_str+'\n')
+                        f1.write(gt_target_str+'\n')
+                    dev_bleu=round(_bleu(os.path.join(args.output_dir,"tmp.gold"), os.path.join(args.output_dir,"tmp.output")),2) # bleu 계산
+                    print("bleu-4: ",str(dev_bleu))
+                    with open(os.path.join(args.output_dir,"tmp_wo_paradigm.output"),'w') as f, open(os.path.join(args.output_dir,"tmp_wo_paradigm.gold"),'w') as f1:
+                        f.write(' '.join(pred_target_str.split()[:-4])+'\n')
+                        f1.write(' '.join(gt_target_str.split()[:-4])+'\n')
+                    dev_bleu=round(_bleu(os.path.join(args.output_dir, "tmp_wo_paradigm.gold"), os.path.join(args.output_dir, "tmp_wo_paradigm.output")),2) # bleu 계산
+                    print("bleu-4 w/o programming paradigm: ",str(dev_bleu))
+
+                    # s-bert score 계산
+                    pred_target_str_wo_paradigm, gt_target_str_wo_paradigm = ' '.join(pred_target_str.split()[:-4]), ' '.join(gt_target_str.split()[:-4])
+                    sentences = [pred_target_str, gt_target_str, pred_target_str_wo_paradigm, gt_target_str_wo_paradigm]
+                    sentence_embeddings = sbert_model.encode(sentences)
+                    print()
+                    pred_target_str_embedding, gt_target_str_embedding, pred_target_str_wo_paradigm_embedding, gt_target_str_wo_paradigm_embedding = \
+                        sentence_embeddings[0], sentence_embeddings[1], sentence_embeddings[2], sentence_embeddings[3]
+                    s_bert_score = cosine_similarity([pred_target_str_embedding], [gt_target_str_embedding])
+                    s_bert_score_wo_paradigm = cosine_similarity([pred_target_str_wo_paradigm_embedding], [gt_target_str_wo_paradigm_embedding])
+                    print("S-BERT Score: ", round(float(s_bert_score),3))
+                    print("S-BERT Score w/o programming paradigm: ", round(float(s_bert_score_wo_paradigm),3))
+                    num_count_4_sbert_score += 1
+                    sum_sbert_score += s_bert_score
+                    sum_sbert_score_wo_paradigm += s_bert_score_wo_paradigm
+                    print()
+
+                    num_count += 1
+                    gt_programming_paradigm = ' '.join(tokenizer.decode(target_ids[0], skip_special_tokens=True, clean_up_tokenization_spaces=False).split()[-4:])
+                    pred_programming_paradigm = ' '.join(tokenizer.decode(top_preds[0], skip_special_tokens=True, clean_up_tokenization_spaces=False).split()[-4:])
+                    if gt_programming_paradigm == pred_programming_paradigm:
+                        num_correct_paradigm += 1
+                    # imperative 를 1, functional 을 0 이라 간주
+                    # 
+                    if pred_programming_paradigm == 'in imperative programming paradigm' and gt_programming_paradigm == 'in imperative programming paradigm': # TP 인 경우
+                        TP_count += 1
+                        TP_sum_code_len += len(source_token_list)
+                        CASE = "TP"
+                    elif pred_programming_paradigm == 'in imperative programming paradigm' and gt_programming_paradigm == 'in functional programming paradigm': # FP 인 경우
+                        FP_count += 1
+                        FP_sum_code_len += len(source_token_list)
+                        CASE = "FP"
+                    elif pred_programming_paradigm == 'in functional programming paradigm' and gt_programming_paradigm == 'in imperative programming paradigm': # FN 인 경우
+                        FN_count += 1
+                        FN_sum_code_len += len(source_token_list)
+                        CASE = "FN"
+                    elif pred_programming_paradigm == 'in functional programming paradigm' and gt_programming_paradigm == 'in functional programming paradigm': # TN 인 경우
+                        TN_count += 1
+                        TN_sum_code_len += len(source_token_list)
+                        CASE = "TN"
+                    print("CASE: ", CASE)
+
+                    print()
+                    print()
+                    print()
+                    print()
+                    print()
+                    print()
+                    print()
+
                     # 배치의 첫번째 seq prediction 인 top_preds[0] 를 tokenizer.decode() 에 넣고, 출력해보면,
                     #
                     # <after training>
@@ -862,6 +1075,19 @@ def main():
                     # function ( ) {function ( n ) {( n) { return( n ) ; }function ( n ) {( n ) ;( n ) ;( n ) ;() ; }( n ) ;() ; }) ; }) ; }) ; }() ; }) ; }() ; }() ; }
                     # 
                     # public class{}
+
+            acc_4_paradigm = ( num_correct_paradigm / num_count ) * 100.0
+
+
+            avg_sbert_score = sum_sbert_score / num_count_4_sbert_score
+            avg_sbert_score_wo_paradigm = sum_sbert_score_wo_paradigm / num_count_4_sbert_score
+
+
+            TP_avg_code_len = TP_sum_code_len / TP_count
+            FP_avg_code_len = FP_sum_code_len / FP_count
+            FN_avg_code_len = FN_sum_code_len / FN_count
+            TN_avg_code_len = TN_sum_code_len / TN_count
+
 
             model.train()
             predictions=[]
@@ -886,11 +1112,42 @@ def main():
                     #print("type(accs):",type(accs)) # <class 'list'>
                     #print("len(accs):",len(accs)) # 1, 2, 3, ..., 887
 
+            # only 기능성에 대한 bleu 계산용. "in ㅇㅇㅇ programming paradigm" 빼고 저장. test_0_bleu_wo_paradigm.output, test_0_bleu_wo_paradigm.gold 에 저장.
+            with open(os.path.join(args.output_dir,"test_{}_bleu_wo_paradigm.output".format(str(idx))),'w') as f, open(os.path.join(args.output_dir,"test_{}_bleu_wo_paradigm.gold".format(str(idx))),'w') as f1:
+                for ref,gold in zip(p,eval_examples):   
+                    predictions.append(str(gold.idx)+'\t'+ref)          # 여기서 append 열심히 해놓고, 왜 나중에 predictions 는 안써??
+                    f.write(' '.join(ref.split()[:-4])+'\n')   # seq prediction 1개 write
+                    f1.write(' '.join(gold.target.split()[:-4])+'\n')  # seq target 1개 write    
+                    accs.append(ref==gold.target)       # ref : seq prediction 1개   ,    gold.target : seq target 1개     ->     이 두개 seq가 서로 아예 일치하면, accs 에 True 가 append, otherwise False 가 append 됨
+
+
+
             dev_bleu=round(_bleu(os.path.join(args.output_dir, "test_{}.gold".format(str(idx))).format(file),           # bleu 계산 코드는 xlcost 자체적으로 구현함.
                                  os.path.join(args.output_dir, "test_{}.output".format(str(idx))).format(file)),2)      # bleu 계산방법 ?? : 
+
+            dev_bleu_wo_paradigm=round(_bleu(os.path.join(args.output_dir, "test_{}_bleu_wo_paradigm.gold".format(str(idx))).format(file),           # bleu 계산 코드는 xlcost 자체적으로 구현함.
+                                 os.path.join(args.output_dir, "test_{}_bleu_wo_paradigm.output".format(str(idx))).format(file)),2)      # bleu 계산방법 ?? : 
+
             logger.info("  %s = %s "%("bleu-4",str(dev_bleu)))
+            logger.info("  %s = %s "%("bleu-4_wo_paradigm",str(dev_bleu_wo_paradigm)))
+
+            logger.info("  %s = %s "%("avg_sbert_score",round(float(avg_sbert_score),3)))
+            logger.info("  %s = %s "%("avg_sbert_score_wo_paradigm",round(float(avg_sbert_score_wo_paradigm),3)))
+
             logger.info("  %s = %s "%("xMatch",str(round(np.mean(accs)*100,4))))  # np.mean(accs) : accs 리스트 안에 True, False 들이 있음. True 는 1로, False 는 0으로 간주. np.mean(accs) 는 accs 리스트 안의 1 과 0 의 평균값을 계산. 즉, 전체 원소 갯수중 True 의 비율을 계산. 0.0 ~ 1.0
                                                                                   #                 100 을 곱하여, 백분율로 계산
+            logger.info("  %s = %s "%("Accuracy of Programming Paradigm Classification",str(acc_4_paradigm)))
+
+            logger.info("  %s = %s "%("number of TP: ",str(round(float(TP_count),3))))
+            logger.info("  %s = %s "%("number of FP: ",str(round(float(FP_count),3))))
+            logger.info("  %s = %s "%("number of FN: ",str(round(float(FN_count),3))))
+            logger.info("  %s = %s "%("number of TN: ",str(round(float(TN_count),3))))
+
+            logger.info("  %s = %s "%("TP average code length: ",str(round(float(TP_avg_code_len),3))))
+            logger.info("  %s = %s "%("FP average code length: ",str(round(float(FP_avg_code_len),3))))
+            logger.info("  %s = %s "%("FN average code length: ",str(round(float(FN_avg_code_len),3))))
+            logger.info("  %s = %s "%("TN average code length: ",str(round(float(TN_avg_code_len),3))))
+
             logger.info("  "+"*"*20)    
 
 

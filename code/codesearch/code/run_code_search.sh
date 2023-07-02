@@ -35,6 +35,8 @@ elif [[ $MODEL == 'unixcoder' ]]; then
     pretrained_model="microsoft/unixcoder-base";
 elif [[ $MODEL == 'plbart' ]]; then
     pretrained_model="uclanlp/plbart-base";
+elif [[ $MODEL == 'graphcodebert' ]]; then
+    pretrained_model="microsoft/graphcodebert-base";
 fi
 
 NUM_TRAIN_EPOCHS=10;

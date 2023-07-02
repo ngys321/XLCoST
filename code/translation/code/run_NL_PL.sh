@@ -199,6 +199,12 @@ python $evaluator_script/evaluator.py \
     --predictions $SAVE_DIR1/test_0.output \
     2>&1 | tee $RESULT_FILE;
 
+# only 기능성에 대한 bleu 계산용. "in ㅇㅇㅇ programming paradigm" 빼고 저장. test_0_bleu_wo_paradigm.output, test_0_bleu_wo_paradigm.gold 에 저장.
+python $evaluator_script/evaluator_wo_paradigm.py \
+    --references  $SAVE_DIR1/test_0_bleu_wo_paradigm.gold \
+    --predictions $SAVE_DIR1/test_0_bleu_wo_paradigm.output \
+    2>&1 | tee $RESULT_FILE;
+
 cd $codebleu_path;
 python calc_code_bleu.py \
     --ref $GOUND_TRUTH_PATH \

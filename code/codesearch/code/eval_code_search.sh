@@ -3,7 +3,7 @@ code2codesearch_path=${root_path}code2codesearch/
 nl2codesearch_path=${root_path}nl2codesearch/
 
 declare -a langs=("Python") # declare -a langs=("C++" "Java" "Python" "C#" "Javascript" "PHP" "C")
-declare -a models=("unixcoder") # declare -a models=("codebert")
+declare -a models=("codebert") # declare -a models=("codebert")
                                 # declare -a models=("codebert" "roberta")
 declare -a datatypes=("program") # declare -a datatypes=("snippet" "program")
 

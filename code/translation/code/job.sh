@@ -51,5 +51,5 @@ nvcc -V
 # bash run_NL_PL.sh 0 desc python program codet5p eval 10
 
 # code summarization
-bash run_NL_PL.sh 0 python desc program plbart train 10
-bash run_NL_PL.sh 0 python desc program plbart eval 10
+# bash run_NL_PL.sh 0 python desc program unixcoder train 10
+bash run_NL_PL.sh 0 python desc program unixcoder eval 10

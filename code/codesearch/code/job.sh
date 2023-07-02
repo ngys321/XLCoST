@@ -46,5 +46,5 @@ nvcc -V
 
 #bash run_code_search.sh 0 python nl2code program codebert train
 
-bash run_code_search.sh 0 python nl2code program unixcoder train
+#bash run_code_search.sh 0 python nl2code program graphcodebert train
 bash eval_code_search.sh # 여러 lang. 여러 모델.에 대해서 한번에 eval 가능: 필요시 eval_code_search.sh 수정
