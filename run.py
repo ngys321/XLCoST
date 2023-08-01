@@ -48,6 +48,7 @@ from io import open
 from itertools import cycle
 import torch.nn as nn
 from model import Seq2Seq
+from model_unixcoder import Seq2Seq_unixcoder
 from tqdm import tqdm, trange
 from bleu import _bleu
 from torch.utils.data import DataLoader, Dataset, SequentialSampler, RandomSampler,TensorDataset
@@ -165,15 +166,21 @@ def convert_examples_to_features(examples, tokenizer, args,stage=None): # tokeni
         cls_token = tokenizer.bos_token
         sep_token = tokenizer.eos_token
     for example_index, example in enumerate(examples):
+
+        # unixcoder 의 경우, 토큰을 추가해야됨.
+        if args.model_type == "unixcoder":
+            source_tokens = tokenizer.tokenize(example.source)[:args.max_source_length-5]
+            source_tokens = [tokenizer.cls_token,"<encoder-decoder>",tokenizer.sep_token,"<mask0>"]+source_tokens+[tokenizer.sep_token]
         #source
-        source_tokens = tokenizer.tokenize(example.source)[:args.max_source_length-2]
-        # example.source : (예시) 'Maximum Prefix Sum possible by merging two given arrays | Python3 implementation of the above approach ; Stores the maximum prefix sum of the array A [ ] ; Traverse the array A [ ] ; Stores the maximum prefix sum of the array B [ ] ; Traverse the array B [ ] ; Driver code'
-        # args.max_source_length : 400              * pair_data_tok_full_desc_comment/train-Python-desc-tok.txt 에서 몇개 샘플 토큰수 세어보니, 150~300개 정도 , 
-        # source_tokens : ['Maximum', 'ĠPrefix', 'ĠSum', 'Ġpossible', 'Ġby', 'Ġmerging', 'Ġtwo', 'Ġgiven', 'Ġarrays', 'Ġ|', 'ĠPython', '3', 'Ġimplementation', 'Ġof', ...] 62개 (왜 62개 인지는 BPE 알고리즘 검색ㄱ)??
-        source_tokens =[cls_token]+source_tokens+[sep_token]
-        # cls_token : '<s>'
-        # sep_token : '</s>'
-        # source_tokens : ['<s>', 'Maximum', 'ĠPrefix', 'ĠSum', 'Ġpossible', 'Ġby', 'Ġmerging', 'Ġtwo', 'Ġgiven', 'Ġarrays', 'Ġ|', 'ĠPython', '3', 'Ġimplementation', 'Ġof', ..., '</s>',] 64개
+        else:
+            source_tokens = tokenizer.tokenize(example.source)[:args.max_source_length-2]
+            # example.source : (예시) 'Maximum Prefix Sum possible by merging two given arrays | Python3 implementation of the above approach ; Stores the maximum prefix sum of the array A [ ] ; Traverse the array A [ ] ; Stores the maximum prefix sum of the array B [ ] ; Traverse the array B [ ] ; Driver code'
+            # args.max_source_length : 400              * pair_data_tok_full_desc_comment/train-Python-desc-tok.txt 에서 몇개 샘플 토큰수 세어보니, 150~300개 정도 , 
+            # source_tokens : ['Maximum', 'ĠPrefix', 'ĠSum', 'Ġpossible', 'Ġby', 'Ġmerging', 'Ġtwo', 'Ġgiven', 'Ġarrays', 'Ġ|', 'ĠPython', '3', 'Ġimplementation', 'Ġof', ...] 62개 (왜 62개 인지는 BPE 알고리즘 검색ㄱ)??
+            source_tokens =[cls_token]+source_tokens+[sep_token]
+            # cls_token : '<s>'
+            # sep_token : '</s>'
+            # source_tokens : ['<s>', 'Maximum', 'ĠPrefix', 'ĠSum', 'Ġpossible', 'Ġby', 'Ġmerging', 'Ġtwo', 'Ġgiven', 'Ġarrays', 'Ġ|', 'ĠPython', '3', 'Ġimplementation', 'Ġof', ..., '</s>',] 64개
         source_ids =  tokenizer.convert_tokens_to_ids(source_tokens)
         # source_ids : [1, 13528, 10139, 9352, 3323, 635, 17256, 2795, 864, 5352, 571, 6600, 23, 4471, ...] 64개
         source_mask = [1] * (len(source_tokens))
@@ -449,7 +456,7 @@ def main():
     # args.do_lower_case : False
     # tokenizer : RobertaTokenizer 클래스의 인스턴스 ###################################################### tokenizer 내부적으로 어떻게 작동??
 
-    #budild model
+    #build model
     if args.model_type == 'roberta':
         encoder = model_class.from_pretrained(args.model_name_or_path,config=config)    
         decoder_layer = nn.TransformerDecoderLayer(d_model=config.hidden_size, nhead=config.num_attention_heads)
@@ -457,6 +464,16 @@ def main():
         model=Seq2Seq(encoder=encoder,decoder=decoder,config=config,
                       beam_size=args.beam_size,max_length=args.max_target_length,
                       sos_id=tokenizer.cls_token_id,eos_id=tokenizer.sep_token_id)
+
+    if args.model_type == 'unixcoder':
+        tokenizer = RobertaTokenizer.from_pretrained(args.model_name_or_path)
+        config = RobertaConfig.from_pretrained(args.model_name_or_path)
+        # import!!!you must set is_decoder as True for generation
+        config.is_decoder = True
+        encoder = RobertaModel.from_pretrained(args.model_name_or_path,config=config)
+        model = Seq2Seq_unixcoder(encoder=encoder, decoder=encoder, config=config,
+                        beam_size=args.beam_size, max_length=args.max_target_length,
+                        sos_id=tokenizer.convert_tokens_to_ids(["<mask0>"])[0],eos_id=tokenizer.sep_token_id)
 
     else: # codet5 는 이거 실행
         model = model_class.from_pretrained(args.model_name_or_path)    # model : T5ForConditionalGeneration 클래스의 인스턴스
@@ -600,7 +617,8 @@ def main():
             if args.model_type == 'roberta':
                 loss, _, _ = model(source_ids=source_ids, source_mask=source_mask,
                                    target_ids=target_ids, target_mask=target_mask)
-
+            elif args.model_type == 'unixcoder':
+                loss, _, _ = model(source_ids=source_ids, target_ids=target_ids)
             else: # 이거 실행됨
                 #print("모델 돌리기 시작")
                 outputs = model(input_ids=source_ids, attention_mask=source_mask,
@@ -670,7 +688,9 @@ def main():
                         if args.model_type == 'roberta':
                             _,loss,num = model(source_ids=source_ids,source_mask=source_mask,
                                                target_ids=target_ids,target_mask=target_mask)  
-                        
+
+                        elif args.model_type == 'unixcoder':
+                            _, loss, num = model(source_ids=source_ids, target_ids=target_ids)                        
                             
                         else:
                             outputs = model(input_ids=source_ids, attention_mask=source_mask,
@@ -749,7 +769,8 @@ def main():
                         if args.model_type == 'roberta':
                             preds = model(source_ids=source_ids, source_mask=source_mask)
         #                             top_preds = [pred[0].cpu().numpy() for pred in preds]
-                            
+                        elif args.model_type == 'unixcoder':
+                            preds = model(source_ids=source_ids)
                         else:
                             #
                             if args.n_gpu > 1:  # multi-gpu 로 DDP 하기위해, preds = model.generate 대신 preds = model.module.generate 로 고침 
@@ -784,6 +805,14 @@ def main():
                             #   array([0,   1,  32099,  ...]) ]
                         
                     if args.model_type == 'roberta':
+                        for pred in preds:
+                            t=pred[0].cpu().numpy()
+                            t=list(t)
+                            if 0 in t:
+                                t=t[:t.index(0)]
+                            text = tokenizer.decode(t,clean_up_tokenization_spaces=False)
+                            p.append(text)
+                    elif args.model_type == 'unixcoder':
                         for pred in preds:
                             t=pred[0].cpu().numpy()
                             t=list(t)
@@ -829,7 +858,7 @@ def main():
             files.append(args.test_filename)
         print("files: ", files) # test 할때, files 에 "test-Python-desc-tok_org.py,test-Python-desc-tok_org.txt" 가 있나?
         #         return
-        with open(os.path.join(args.output_dir,"testData_4_DataFrame.jsonl"),'w') as testdata_f: # dataframe 에 넣을 데이터를 저장할 파일
+        with open(os.path.join(args.output_dir,"test_4_df.jsonl"),'w') as testdata_f: # dataframe 에 넣을 데이터를 저장할 파일
 
             for idx,file in enumerate(files):   # test 할 파일은 하나뿐인가봐. len(files) == 1 임
                 logger.info("Test file: {}".format(file))
@@ -906,6 +935,9 @@ def main():
                             #     pickle.dump(source_mask, f)
 
                             #top_preds = [pred[0].cpu().numpy() for pred in preds]
+                        elif args.model_type == 'unixcoder':
+                            preds = model(source_ids=source_ids)
+                            preds = preds[:,0,:] # 추가
                         else: # 실행됨
                             if args.n_gpu > 1:  # multi-gpu 로 DDP 하기위해, preds = model.generate 대신 preds = model.module.generate 로 고침 
                                 preds = model.module.generate(source_ids,                              # generate 함수는 어떻게 작동하는지는? 참고 : https://huggingface.co/docs/transformers/model_doc/t5#inference, generate() 내에 다양한 decoding methods 들이 있음. 여기선 beam search 쓰는듯. 내부에 beam_search() 가 또 있어.
