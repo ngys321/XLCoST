@@ -465,7 +465,7 @@ def main():
                       beam_size=args.beam_size,max_length=args.max_target_length,
                       sos_id=tokenizer.cls_token_id,eos_id=tokenizer.sep_token_id)
 
-    if args.model_type == 'unixcoder':
+    elif args.model_type == 'unixcoder':
         tokenizer = RobertaTokenizer.from_pretrained(args.model_name_or_path)
         config = RobertaConfig.from_pretrained(args.model_name_or_path)
         # import!!!you must set is_decoder as True for generation
